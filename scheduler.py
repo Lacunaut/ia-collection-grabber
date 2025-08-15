@@ -56,9 +56,11 @@ async def schedule_fixed(identifiers: List[str], out_root: Path, log_writer, med
     # Each worker needs a permit to start, and returns it when done
     sem = asyncio.Semaphore(max(1, workers))
     
-    # Track progress
+    # Track progress and statistics
     total = len(identifiers)
     done_cnt = 0
+    disk_space_skips = 0  # Track how many items were skipped due to low disk space
+    disk_full = False  # Flag to stop starting new downloads when disk is full
     
     # Define the worker function that uses the semaphore
     async def one(iid: str):
@@ -101,20 +103,38 @@ async def schedule_fixed(identifiers: List[str], out_root: Path, log_writer, med
         # Process completed tasks
         for task in done:
             # Get the result (this will raise any exceptions that occurred)
-            _ = task.result()
+            result = task.result()
             done_cnt += 1
+            
+            # Track disk space skips
+            if result.get("status") == "skip" and result.get("reason") == "insufficient_disk_space":
+                disk_space_skips += 1
+                if not disk_full:
+                    # First disk space error - stop starting new downloads
+                    disk_full = True
+                    print(f"[stop] Disk space insufficient - stopping new downloads")
+                    print(f"[info] Current downloads will continue to completion")
             
             # Show progress
             print(f"[prog] {done_cnt}/{total} complete")
             
-            # Try to start a new task if there are more identifiers
-            try:
-                next_id = next(it)
-                new_task = asyncio.create_task(one(next_id))
-                running.add(new_task)
-            except StopIteration:
-                # No more identifiers to process
-                pass
+            # Try to start a new task ONLY if disk is not full and there are more identifiers
+            if not disk_full:
+                try:
+                    next_id = next(it)
+                    new_task = asyncio.create_task(one(next_id))
+                    running.add(new_task)
+                except StopIteration:
+                    # No more identifiers to process
+                    pass
     
-    # All tasks completed
-    print(f"[done] All {total} items processed")
+    # All tasks completed (or stopped early due to disk space)
+    if disk_full:
+        print(f"[done] Processing stopped early after {done_cnt}/{total} items")
+        print(f"[summary] {disk_space_skips} items skipped due to insufficient disk space")
+        print(f"[final] Cannot continue - disk is full. Free up space before running again.")
+    else:
+        print(f"[done] All {total} items processed")
+        # Show disk space summary if any items were skipped
+        if disk_space_skips > 0:
+            print(f"[summary] {disk_space_skips} items skipped due to insufficient disk space")

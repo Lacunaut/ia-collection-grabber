@@ -30,7 +30,7 @@ from typing import Dict
 
 # Import our modules
 from config import START_JITTER_SEC
-from utils import item_page_url, file_download_url
+from utils import item_page_url, file_download_url, should_skip_download_for_space
 from ia_client import ia_metadata, RATE_GATE
 from file_selector import pick_best_file, local_already_ok
 from downloader import aria2_download, rate_limited_errtext
@@ -130,7 +130,19 @@ async def process_identifier(identifier: str, out_root: Path, log_writer, media_
             sz = best["size"]        # File size in bytes
             url = file_download_url(identifier, name)  # Direct download URL
             
-            # Step 2g: Check if we already have this file locally
+            # Step 2g: Check disk space before proceeding
+            # This prevents downloads from filling up the disk completely
+            if should_skip_download_for_space(out_root):
+                print(f"[skip] insufficient disk space (less than 2% free) - skipping download")
+                log_writer.writerow([identifier, "SKIP", "insufficient_disk_space", page, ""])
+                return {
+                    "bytes": 0, 
+                    "seconds": time.perf_counter() - t0, 
+                    "status": "skip",
+                    "reason": "insufficient_disk_space"
+                }
+            
+            # Step 2h: Check if we already have this file locally
             dest_dir = out_root / identifier  # Directory for this item
             if local_already_ok(dest_dir, name, sz):
                 print(f"[skip] already present and size matches -> {name} ({sz} bytes)")
@@ -140,12 +152,12 @@ async def process_identifier(identifier: str, out_root: Path, log_writer, media_
                     "status": "skip"
                 }
             
-            # Step 2h: Display what we're going to download
+            # Step 2i: Display what we're going to download
             size_s = "unknown" if sz is None else f"{sz} bytes"
             print(f"[choose] {name}  ext={ext}  size={size_s}")
             print(f"[url]    {url}")
             
-            # Step 2i: Download the file
+            # Step 2j: Download the file
             d0 = time.perf_counter()  # Start timing the download
             ok, err = await aria2_download(url, dest_dir, aria_x, aria_s)
             dsec = time.perf_counter() - d0  # Calculate download time

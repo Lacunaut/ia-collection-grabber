@@ -20,6 +20,8 @@ import re          # For regular expressions (pattern matching in text)
 import asyncio     # For running commands asynchronously (without blocking)
 import urllib.request  # For making HTTP requests with custom headers
 import sys         # For exiting the program
+import shutil      # For checking disk space
+from pathlib import Path  # For working with file paths
 from typing import List, Tuple, Optional  # For type hints (telling Python what types we expect)
 
 # ============================================================================
@@ -240,6 +242,68 @@ def _size_int(x) -> Optional[int]:
     except Exception:
         # If anything goes wrong (not a number, None, etc.), return None
         return None
+
+# ============================================================================
+# DISK SPACE MONITORING
+# ============================================================================
+
+def get_disk_space_percentage(path: Path) -> float:
+    """
+    Get the percentage of free disk space for a given path.
+    
+    Args:
+        path (Path): The path to check disk space for
+    
+    Returns:
+        float: Percentage of free disk space (0.0 to 100.0)
+    
+    This function checks how much free space is available on the disk
+    where the given path is located. It's used to prevent downloads
+    from filling up the disk completely.
+    
+    Example:
+        free_space = get_disk_space_percentage(Path("./downloads"))
+        if free_space < 2.0:
+            print("Low disk space!")
+    """
+    try:
+        # Get disk usage statistics for the path
+        # total, used, free = shutil.disk_usage(path)
+        usage = shutil.disk_usage(path)
+        
+        # Calculate percentage of free space
+        # free_space_percentage = (free / total) * 100
+        free_space_percentage = (usage.free / usage.total) * 100
+        
+        return free_space_percentage
+        
+    except Exception as e:
+        # If we can't check disk space, assume it's okay
+        # This prevents the program from crashing if there are permission issues
+        print(f"[warn] Could not check disk space: {e}")
+        return 100.0  # Assume plenty of space
+
+def should_skip_download_for_space(path: Path, threshold: float = 2.0) -> bool:
+    """
+    Check if we should skip a download due to low disk space.
+    
+    Args:
+        path (Path): The path where the download would go
+        threshold (float): Minimum free space percentage (default 2.0%)
+    
+    Returns:
+        bool: True if download should be skipped due to low space
+    
+    This function checks if there's enough free disk space to safely
+    proceed with a download. It uses a threshold to ensure we don't
+    completely fill up the disk.
+    
+    Example:
+        if should_skip_download_for_space(Path("./downloads")):
+            print("Skipping download - low disk space")
+    """
+    free_space = get_disk_space_percentage(path)
+    return free_space < threshold
 
 # ============================================================================
 # HTTP REQUEST CONFIGURATION
