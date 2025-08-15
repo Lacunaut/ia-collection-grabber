@@ -3,18 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Downloaded content from Internet Archive
-# These folders contain downloaded files and should not be committed
-*-trailers/
-*-movies/
-*-audio/
-*-videos/
-*-collection/
-
-# Any folder that might contain downloaded content
+# Downloaded content - all downloads go here
 downloads/
-output/
-results/
 
 # IDE files
 .vscode/

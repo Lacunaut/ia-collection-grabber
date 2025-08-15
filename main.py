@@ -139,9 +139,10 @@ async def main():
     print(f"[plan] Workers={workers}  aria2: -x {aria_x}  -s {aria_s}  (max-connection-per-server={aria_x})")
     
     # Step 7: Set up output directory
-    # Main folder named exactly as the collection ID
-    out_root = Path.cwd() / collection
-    print(f"[plan] Output root will be: {out_root}")
+    # Downloads go into a downloads folder, organized by collection ID
+    downloads_dir = Path.cwd() / "downloads"
+    out_root = downloads_dir / collection
+    print(f"[plan] Downloads will go to: {out_root}")
     
     # Step 8: Get optional search constraints
     extra = input("Optional extra IA search constraint (ENTER for none): ").strip() or None
