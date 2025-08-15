@@ -18,8 +18,6 @@ It knows how to talk to IA's servers and handles all the web requests.
 # ============================================================================
 
 import json              # For parsing JSON responses from IA
-import urllib.request    # For making HTTP requests
-import urllib.error      # For handling HTTP errors
 import asyncio           # For async operations
 import time              # For timing and delays
 from typing import Dict, List, Optional
@@ -85,42 +83,7 @@ class RateGate:
 # Create a global rate gate that all parts of the program share
 RATE_GATE = RateGate()
 
-# ============================================================================
-# HTTP ERROR HANDLING
-# ============================================================================
 
-def _retry_after_seconds(e: urllib.error.HTTPError, default: int = 90) -> int:
-    """
-    Extract the "Retry-After" time from an HTTP error response.
-    
-    Args:
-        e (urllib.error.HTTPError): The HTTP error that occurred
-        default (int): Default wait time if server doesn't specify one
-    
-    Returns:
-        int: How many seconds to wait before retrying
-    
-    When a server rate limits us, it usually sends a "Retry-After" header
-    telling us how long to wait. This function extracts that information.
-    """
-    try:
-        # Try to get the Retry-After header from the error response
-        ra = e.headers.get("Retry-After")
-        
-        if not ra:
-            # No Retry-After header found, use default
-            return default
-        
-        try:
-            # Convert the header value to an integer
-            return int(ra)
-        except ValueError:
-            # Header exists but isn't a valid number, use default
-            return default
-            
-    except Exception:
-        # Something went wrong reading the headers, use default
-        return default
 
 # ============================================================================
 # INTERNET ARCHIVE SEARCH
@@ -198,77 +161,25 @@ async def ia_metadata(identifier: str) -> Dict:
     Returns:
         Dict: The item's metadata (files, title, description, etc.)
     
-    This function tries to get metadata via HTTP first (faster),
-    then falls back to the IA command-line tool if that fails.
+    This function uses only the IA command-line tool to get metadata.
+    This avoids SSL certificate issues that can occur with HTTP requests.
     
-    It includes rate limiting and retry logic to be polite to IA servers.
+    It includes rate limiting to be polite to IA servers.
     """
     # Check if we need to wait due to rate limiting
     await RATE_GATE.wait_if_needed()
     
-    # Build the metadata URL
-    # IA provides metadata as JSON at this URL
-    url = f"https://archive.org/metadata/{identifier}"
+    # Get metadata via the IA command-line tool
+    # This is more reliable than HTTP and avoids SSL certificate issues
+    code, out, err = await run_cmd([IA_BIN, "metadata", identifier])
     
-    # Define the actual HTTP request function
-    # We put this in a separate function so we can run it in a thread
-    def _fetch() -> str:
-        """
-        Make the HTTP request to get metadata.
-        
-        Returns:
-            str: The JSON response as text
-        
-        This function runs in a separate thread to avoid blocking our async code.
-        """
-        with urllib.request.urlopen(url, timeout=30) as r:
-            # Read the response and convert to text
-            return r.read().decode("utf-8", "replace")
+    if code != 0:
+        # CLI failed - raise an error with the error message
+        raise RuntimeError(f"CLI metadata failed: {err.strip() or out.strip()}")
     
     try:
-        # Try to fetch metadata via HTTP
-        # asyncio.to_thread runs the HTTP request in a separate thread
-        # This prevents the HTTP request from blocking our async program
-        text = await asyncio.to_thread(_fetch)
-        
-        # Parse the JSON response into a Python dictionary
-        return json.loads(text)
-        
-    except urllib.error.HTTPError as e:
-        # HTTP request failed
-        if e.code in (429, 503):
-            # Rate limited (429) or service unavailable (503)
-            # Calculate how long to wait
-            back = _retry_after_seconds(e, 90)
-            
-            # Tell the rate gate to make everyone wait
-            await RATE_GATE.backoff(back)
-            
-            # Re-raise the error so the caller can handle it
-            raise
-        else:
-            # Some other HTTP error - re-raise it
-            raise
-            
-    except Exception as http_err:
-        # HTTP request failed for some other reason
-        # Fall back to using the IA command-line tool
-        
-        print(f"[warn] HTTP metadata failed, trying CLI fallback: {http_err}")
-        
-        # Try to get metadata via the IA command-line tool
-        code, out, err = await run_cmd([IA_BIN, "metadata", identifier])
-        
-        if code != 0:
-            # Both HTTP and CLI failed
-            raise RuntimeError(
-                f"metadata via HTTP failed ({http_err}); "
-                f"CLI failed: {err.strip() or out.strip()}"
-            )
-        
-        try:
-            # Parse the CLI output as JSON
-            return json.loads(out)
-        except json.JSONDecodeError:
-            # CLI returned something that's not valid JSON
-            raise RuntimeError("metadata not JSON; update internetarchive or use MDAPI")
+        # Parse the CLI output as JSON
+        return json.loads(out)
+    except json.JSONDecodeError:
+        # CLI returned something that's not valid JSON
+        raise RuntimeError("metadata not JSON; update internetarchive or use MDAPI")

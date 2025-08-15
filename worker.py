@@ -30,7 +30,7 @@ from typing import Dict
 
 # Import our modules
 from config import START_JITTER_SEC
-from utils import item_page_url, file_download_url, _retry_after_seconds
+from utils import item_page_url, file_download_url
 from ia_client import ia_metadata, RATE_GATE
 from file_selector import pick_best_file, local_already_ok
 from downloader import aria2_download, rate_limited_errtext
@@ -179,17 +179,7 @@ async def process_identifier(identifier: str, out_root: Path, log_writer, media_
                     "status": "fail"
                 }
         
-        except urllib.error.HTTPError as e:
-            # HTTP error during metadata fetching
-            if e.code in (429, 503) and attempt == 1:
-                # Rate limited during metadata fetch
-                back = _retry_after_seconds(e, 90)
-                await RATE_GATE.backoff(back)
-                print(f"[warn] metadata rate limited. backing off {back}s then retrying once")
-                continue  # Retry after backoff
-            print(f"[fail]   HTTPError during metadata: {e}")
-            log_writer.writerow([identifier, "FAIL", f"metadata_http_{e.code}", page, ""])
-            return {"bytes": 0, "seconds": time.perf_counter() - t0, "status": "fail"}
+
             
         except Exception as e:
             # Any other error
